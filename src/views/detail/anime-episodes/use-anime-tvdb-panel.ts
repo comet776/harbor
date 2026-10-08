@@ -337,6 +337,7 @@ export function useAnimeTvdbPanel(
         from,
         to,
         extra: s.seasonNumber === 0,
+        seasonNumber: s.seasonNumber,
       });
       subset.set(key, eps);
     }
