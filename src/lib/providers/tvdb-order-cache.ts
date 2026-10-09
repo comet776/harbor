@@ -7,6 +7,7 @@ const TTL = 3 * 24 * 60 * 60 * 1000;
 type Serialized = {
   t: number;
   seasons: Season[];
+  seasonNamesResolved?: boolean;
   bySeason: [number, OrderedEpisode[]][];
   absByEpId: [number, number][];
   imageByAbs: [number, string][];
@@ -20,6 +21,7 @@ export function readOrderCache(seriesId: number, seasonType: string): TvdbOrder 
     if (!s || typeof s.t !== "number" || Date.now() - s.t > TTL) return null;
     return {
       seasons: s.seasons,
+      seasonNamesResolved: s.seasonNamesResolved,
       bySeason: new Map(s.bySeason),
       absByEpId: new Map(s.absByEpId),
       imageByAbs: new Map(s.imageByAbs),
@@ -34,6 +36,7 @@ export function writeOrderCache(seriesId: number, seasonType: string, order: Tvd
     const s: Serialized = {
       t: Date.now(),
       seasons: order.seasons,
+      seasonNamesResolved: order.seasonNamesResolved,
       bySeason: [...order.bySeason],
       absByEpId: [...order.absByEpId],
       imageByAbs: [...order.imageByAbs],

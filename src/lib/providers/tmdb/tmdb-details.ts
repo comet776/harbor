@@ -8,6 +8,7 @@ import { pickTrailers, type Video } from "./tmdb-trailers";
 import type { PersonRef } from "./tmdb-people";
 import { isAnimeItem } from "./tmdb-meta-mappers";
 import { setItemWithRecovery } from "@/lib/storage-recovery";
+import { isGenericSeasonName } from "@/lib/season-name";
 
 export type CastEntry = {
   id: number;
@@ -29,6 +30,7 @@ export type Season = {
   id: number;
   seasonNumber: number;
   name: string;
+  isGenericName?: boolean;
   overview: string;
   posterPath: string | null;
   episodeCount: number;
@@ -358,6 +360,7 @@ export async function tmdbDetails(key: string, meta: Meta, lang?: string): Promi
       id: s.id,
       seasonNumber: s.season_number,
       name: s.name,
+      isGenericName: isGenericSeasonName(s.name ?? "", s.season_number),
       overview: s.overview ?? "",
       posterPath: s.poster_path ?? null,
       episodeCount: s.episode_count ?? 0,
