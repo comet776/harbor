@@ -8,8 +8,12 @@ import { effectiveOrderProvider, tvdbPanelEnabled } from "@/lib/settings/episode
 import { useView } from "@/lib/view";
 import { fetchWatchedKeySet } from "@/lib/trakt/history";
 import { useTrakt } from "@/lib/trakt/provider";
-import { useAnilistWatched } from "@/lib/anilist/use-anilist-watched";
-import { useMalWatched } from "@/lib/mal/use-mal-watched";
+import { useAnilistWatchedEntries } from "@/lib/anilist/use-anilist-watched";
+import { useMalWatchedEntries } from "@/lib/mal/use-mal-watched";
+import { ANIME_ENTRY_ID, animeEpisodeCoordinates, animeEpisodeOwner } from "@/lib/anime-episode-identity";
+import { useSimklWatchedMap } from "@/lib/simkl/use-simkl-watched-map";
+import { resumeVersion, subscribeResume } from "@/lib/resume";
+import { useAnimeEntryAliases } from "@/lib/use-anime-entry-aliases";
 import { EpisodeWatchedMenu, type WatchedMenuTarget } from "@/components/episode-watched-menu";
 import { manualWatchedVersion, subscribeManualWatched } from "@/lib/manual-watched";
 import { useT } from "@/lib/i18n";
@@ -102,14 +106,6 @@ export function AnimeEpisodes({
     };
   }, [traktConnected]);
 
-  const { watchedKeys: anilistWatched, completed: anilistCompleted } = useAnilistWatched(
-    trackId ?? meta.id,
-    episodes,
-  );
-  const { watchedKeys: malWatched, completed: malCompleted } = useMalWatched(
-    trackId ?? meta.id,
-    episodes,
-  );
   // Split-franchise sequels (TYBW, Stone Wars, …) render standalone: only the
   // opened entry's episodes, no sibling pooling, no whole-series TVDB buckets.
   const [rootEntryId, setRootEntryId] = useState<string | null>(() => franchiseRootSync(meta.id));
@@ -149,15 +145,34 @@ export function AnimeEpisodes({
   const pickerFranchise =
     soloEntry && soloPickerFranchise.length > 0 ? soloPickerFranchise : franchise;
   const panelPool = franchiseEpisodes !== episodes ? franchiseEpisodes : undefined;
+  const watchedGroups = useMemo(() => {
+    const groups = new Map<string, KitsuEpisode[]>();
+    for (const ep of panelPool ?? episodes) {
+      const owner = animeEpisodeOwner(ep, meta.id, trackId);
+      if (!ANIME_ENTRY_ID.test(owner)) continue;
+      const list = groups.get(owner) ?? [];
+      list.push(ep);
+      groups.set(owner, list);
+    }
+    return groups;
+  }, [panelPool, episodes, meta.id, trackId]);
+  const anilist = useAnilistWatchedEntries(watchedGroups);
+  const mal = useMalWatchedEntries(watchedGroups);
+  const entryAliases = useAnimeEntryAliases([...watchedGroups.keys()]);
+  const simklWatched = useSimklWatchedMap(entryAliases);
+  const anilistCompleted = anilist.completed.has(trackId ?? meta.id);
+  const malCompleted = mal.completed.has(trackId ?? meta.id);
+  const progressContext = useMemo(() => ({
+    metaId: meta.id, trackId, imdbId, traktWatched, entryAliases,
+    anilistWatched: anilist.watched, malWatched: mal.watched, simklWatched,
+  }), [meta.id, trackId, imdbId, traktWatched, entryAliases, anilist.watched, mal.watched, simklWatched]);
   const mwVersion = useSyncExternalStore(subscribeManualWatched, manualWatchedVersion);
+  const rvVersion = useSyncExternalStore(subscribeResume, resumeVersion);
   const preferredSeasonKey = useAnimePreferredSeason({
     episodes: panelPool ?? episodes,
-    metaId: meta.id,
-    trackId,
-    traktWatched,
-    anilistWatched,
-    malWatched,
+    progressContext,
     mwVersion,
+    resumeVersion: rvVersion,
   });
   // Preferred season must stay reactive to watched-data arrival (trakt/AniList/MAL
   // load after first paint with empty sets). Do not latch it: latching the first
@@ -197,7 +212,7 @@ export function AnimeEpisodes({
     intentSeasonKey ?? undefined,
     soloEntry,
   );
-  const routing = useAnimeWatchedRouting(meta, franchise, trackId);
+  const routing = useAnimeWatchedRouting(meta, franchise, trackId, imdbId);
   const effectiveOrder = order;
   const { openMeta } = useView();
   const [activeEntryId, setActiveEntryId] = useState(currentId);
@@ -306,21 +321,6 @@ export function AnimeEpisodes({
       return img ? { ...ep, thumbnail: img } : ep;
     });
   }, [baseDisplay, proxyImages]);
-  const displaySourceId = useMemo(() => {
-    const ids = new Set<string>();
-    for (const e of displayEpisodes) if (e.sourceMetaId != null) ids.add(e.sourceMetaId);
-    return ids.size === 1 ? [...ids][0] : null;
-  }, [displayEpisodes]);
-  const entryPoolEpisodes = useMemo(
-    () =>
-      displaySourceId ? franchiseEpisodes.filter((e) => e.sourceMetaId === displaySourceId) : [],
-    [displaySourceId, franchiseEpisodes],
-  );
-  const { watchedKeys: entryAnilistWatched } = useAnilistWatched(
-    displaySourceId ?? "",
-    entryPoolEpisodes,
-  );
-  const { watchedKeys: entryMalWatched } = useMalWatched(displaySourceId ?? "", entryPoolEpisodes);
   const showSeason = useMemo(
     () => new Set(displayEpisodes.map((e) => e.imdbSeason ?? e.seasonNumber ?? 1)).size > 1,
     [displayEpisodes],
@@ -341,21 +341,20 @@ export function AnimeEpisodes({
     sourceMetaId?: string,
   ) => {
     e.preventDefault();
-    setWatchedMenu({ x: e.clientX, y: e.clientY, season, episode, watched, metaId: sourceMetaId });
+    const ep = displayEpisodes.find((ep) => ep.number === episode &&
+      (ep.imdbSeason === 0 ? 0 : ep.id < 0 ? ep.imdbSeason ?? ep.seasonNumber : ep.seasonNumber) === season &&
+      ep.sourceMetaId === sourceMetaId);
+    const target = ep ? animeEpisodeCoordinates(ep, meta.id, trackId, imdbId)[0] : null;
+    setWatchedMenu({ x: e.clientX, y: e.clientY, season: target?.season ?? season,
+      episode: target?.episode ?? episode, watched, metaId: target?.id ?? sourceMetaId });
   };
 
   const { progressFor, nextUpNum, nextUpId, spoilerFor, allWatched } = useAnimeProgressMap({
     episodes,
     displayEpisodes,
-    metaId: meta.id,
-    trackId,
-    traktWatched,
-    anilistWatched,
-    malWatched,
-    entrySourceId: displaySourceId,
-    entryAnilistWatched,
-    entryMalWatched,
+    progressContext,
     mwVersion,
+    resumeVersion: rvVersion,
     settings,
   });
   const markSeason = (watched: boolean) => routing.markMany(displayEpisodes, watched);
@@ -640,13 +639,11 @@ export function AnimeEpisodes({
                 }
           }
           target={watchedMenu}
-          allEpisodes={entryEpisodes
-            .filter((ep) => (ep.sourceMetaId ?? meta.id) === (watchedMenu.metaId ?? meta.id))
-            .map((ep) => ({
-              season: ep.seasonNumber ?? 1,
-              episode: ep.number,
-              released: ep.airdate ?? null,
-            }))}
+          allEpisodes={franchiseEpisodes.flatMap((ep) => {
+            const target = animeEpisodeCoordinates(ep, meta.id, trackId, imdbId)[0];
+            return target?.id === (watchedMenu.metaId ?? meta.id)
+              ? [{ season: target.season, episode: target.episode, released: ep.airdate ?? null }] : [];
+          })}
           onClose={() => setWatchedMenu(null)}
         />
       )}

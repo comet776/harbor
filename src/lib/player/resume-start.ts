@@ -1,6 +1,8 @@
 import { readResumeEntry, saveResumeBatch } from "@/lib/resume";
 import { privateCwProfileId } from "@/lib/cw-profile";
 import { episodeFromVideoId, libraryGetOne, type LibraryItem } from "@/lib/stremio";
+import { animePlaybackCoordinates } from "@/lib/anime-episode-identity";
+import type { PlayEpisode } from "@/lib/view";
 
 const RESTART_THRESHOLD = 0.8;
 const REMOTE_CACHE_TTL_MS = 30_000;
@@ -17,6 +19,7 @@ type ResolveStartArgs = ResumeIdentity & {
   season: number | undefined;
   episode: number | undefined;
   openingVid: string | null;
+  playEpisode?: PlayEpisode;
 };
 
 type RemoteEntry = {
@@ -97,8 +100,14 @@ export async function resolveStartMs({
   imdbId,
   imdbVerified,
   openingVid,
+  playEpisode,
 }: ResolveStartArgs): Promise<{ ms: number; fromRemote: boolean; finished: boolean }> {
-  const localEntry = readResumeEntry(metaId, season, episode);
+  const targets = animePlaybackCoordinates(metaId, playEpisode, season, episode);
+  let localEntry = targets ? null : readResumeEntry(metaId, season, episode);
+  for (const target of targets ?? []) {
+    const entry = readResumeEntry(target.id, target.season, target.episode);
+    if (entry && (!localEntry || entry.t > localEntry.t)) localEntry = entry;
+  }
   const local = localEntry?.ms ?? 0;
   const isEpisode = typeof season === "number" && typeof episode === "number";
   if (!authKey || privateCwProfileId()) return { ms: local, fromRemote: false, finished: false };
@@ -110,7 +119,8 @@ export async function resolveStartMs({
     const fromVid = episodeFromVideoId(vid);
     const se = item.state?.season ?? fromVid?.season;
     const ep = item.state?.episode ?? fromVid?.episode;
-    return se === season && ep === episode;
+    const target = targets?.find((target) => target.id === item._id);
+    return se === (target?.season ?? season) && ep === (target?.episode ?? episode);
   };
   const remotes = await remoteItems({ metaId, authKey, imdbId, imdbVerified });
   for (const remote of remotes) {
@@ -134,15 +144,15 @@ export async function resolveStartMs({
       !localEntry ||
       (Number.isFinite(remoteMtime) ? remoteMtime > localEntry.t : remoteMs >= effectiveLocal);
     if (useRemote) {
-      saveResumeBatch([
+      saveResumeBatch((targets ?? [{ id: metaId, season, episode }]).map((target) => (
         {
-          id: metaId,
+          id: target.id,
           ms: remoteMs,
-          season,
-          episode,
+          season: target.season,
+          episode: target.episode,
           t: Number.isFinite(remoteMtime) ? remoteMtime : undefined,
-        },
-      ]);
+        }
+      )));
       return { ms: remoteMs, fromRemote: true, finished: finishedAt(remoteMs) };
     }
     return { ms: effectiveLocal, fromRemote: false, finished: finishedAt(effectiveLocal) };

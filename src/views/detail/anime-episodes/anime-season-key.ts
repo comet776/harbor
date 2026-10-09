@@ -2,10 +2,8 @@ import type { Meta } from "@/lib/cinemeta";
 import type { KitsuEpisode } from "@/lib/providers/kitsu";
 import type { EpisodeDetailPlayback, PlayEpisode } from "@/lib/view";
 
-export function animeSeasonKey(ep: KitsuEpisode): number {
-  if (ep.imdbSeason === 0) return 0;
-  return ep.id < 0 ? (ep.imdbSeason ?? ep.seasonNumber ?? 1) : (ep.seasonNumber ?? 1);
-}
+import { animeSeasonKey } from "@/lib/anime-episode-identity";
+export { animeSeasonKey };
 
 export type AnimeDetailTarget = {
   seriesId: string;

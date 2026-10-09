@@ -84,12 +84,26 @@ function targetKeys(target: SimklTarget): string[] {
 let cache: Promise<SimklProgress> | null = null;
 let cacheMarker: string | null = null;
 let sessionGeneration = 0;
+let cacheProfile: string | null = null;
+let progressVersion = 0;
+const progressSubscribers = new Set<() => void>();
 
-subscribeSession(() => {
+export function subscribeSimklProgress(fn: () => void): () => void {
+  progressSubscribers.add(fn);
+  return () => { progressSubscribers.delete(fn); };
+}
+
+export function simklProgressVersion(): number { return progressVersion; }
+
+export function invalidateSimklProgress(): void {
   sessionGeneration += 1;
   cache = null;
   cacheMarker = null;
-});
+  progressVersion += 1;
+  for (const fn of progressSubscribers) fn();
+}
+
+subscribeSession(invalidateSimklProgress);
 
 async function pull(): Promise<SimklProgress> {
   const data = await simklRequest<RawAllItems | null>(
@@ -189,13 +203,19 @@ async function pull(): Promise<SimklProgress> {
 }
 
 async function loadData(): Promise<SimklProgress> {
+  const profile = activeProfileId();
+  if (cacheProfile !== profile) {
+    cache = null;
+    cacheMarker = null;
+    cacheProfile = profile;
+  }
   const generation = sessionGeneration;
   const all = await currentActivitiesAll();
-  if (generation !== sessionGeneration) throw new Error("SIMKL session changed");
+  if (generation !== sessionGeneration || profile !== activeProfileId()) throw new Error("SIMKL session changed");
   if (!cache || (all !== null && all !== cacheMarker)) {
     const request = pull()
       .then((data) => {
-        if (generation !== sessionGeneration) throw new Error("SIMKL session changed");
+        if (generation !== sessionGeneration || profile !== activeProfileId()) throw new Error("SIMKL session changed");
         rememberSimklWatched(data.watched);
         return data;
       })

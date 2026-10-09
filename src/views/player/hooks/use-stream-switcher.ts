@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import type { PlayerBridge, PlayerSnapshot } from "@/lib/player/bridge";
 import { getPlaybackPosition, usePlaybackFlag } from "@/lib/player/playback-clock";
 import { pinPickerCache, unpinPickerCache } from "@/lib/picker-cache";
-import { readResumeMs } from "@/lib/resume";
+import { readResumeEntry, readResumeMs } from "@/lib/resume";
+import { animePlaybackCoordinates } from "@/lib/anime-episode-identity";
 import { SHORT_PLAYBACK_SEC } from "@/lib/dead-streams";
 import { savePlayback } from "@/lib/playback-history";
 import { resolveStream } from "@/lib/streams/resolve";
@@ -132,8 +133,10 @@ export function useStreamSwitcher(params: {
       }
       try {
         const current = getPlaybackPosition();
-        const savedSec =
-          readResumeMs(src.meta.id, src.episode?.season, src.episode?.episode) / 1000;
+        const targets = animePlaybackCoordinates(src.meta.id, src.episode, src.episode?.season, src.episode?.episode);
+        const saved = targets?.map((target) => readResumeEntry(target.id, target.season, target.episode))
+          .filter((entry) => entry != null).sort((a, b) => b.t - a.t)[0];
+        const savedSec = (targets ? saved?.ms ?? 0 : readResumeMs(src.meta.id, src.episode?.season, src.episode?.episode)) / 1000;
         const curDur = snapRef.current.durationSec;
         const currentIsStub = curDur > 0 && curDur < SHORT_PLAYBACK_SEC;
         const resumeAt = !currentIsStub && current > 5 ? current : savedSec;

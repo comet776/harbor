@@ -2,6 +2,7 @@ import { activeProfileId } from "@/lib/active-profile-id";
 import { getSession } from "./session";
 import { resolveForMeta } from "@/lib/tracker-resolve";
 import { simklRequest } from "./client";
+import { invalidateSimklProgress } from "./list-status";
 import {
   buildBody,
   buildEpisodeBody,
@@ -18,6 +19,7 @@ const ANIME_ID = /^(kitsu|mal|anilist|anidb):/;
 async function post(action: ScrobbleAction, body: Record<string, unknown>): Promise<boolean> {
   try {
     await simklRequest(`/scrobble/${action}`, { method: "POST", body });
+    if (action === "stop") invalidateSimklProgress();
     return true;
   } catch {
     // Background-safe: live scrobble failures must never break playback.

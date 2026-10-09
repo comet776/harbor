@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { hookHarness } from "./helpers/hook-harness.ts";
+import * as animeIdentity from "../src/lib/anime-episode-identity.ts";
 
 const args = { metaId: "tt100", authKey: "fixture", season: 1, episode: 1, imdbId: null, imdbVerified: false, openingVid: "tt100:1:1" };
 function harness(local: any, patch: any = {}, privateProfile: string | null = null) {
@@ -10,6 +11,7 @@ function harness(local: any, patch: any = {}, privateProfile: string | null = nu
     video_id: "tt100:1:1", season: 1, episode: 1, timeOffset: 600000, duration: 1800000, flaggedWatched: 1, ...state,
   } };
   const h = hookHarness("src/lib/player/resume-start.ts", "resolveStartMs", {
+    "@/lib/anime-episode-identity": animeIdentity,
     "@/lib/resume": { readResumeEntry: () => local, saveResumeBatch: (batch: any) => writes.push(...batch) },
     "@/lib/cw-profile": { privateCwProfileId: () => privateProfile },
     "@/lib/stremio": { libraryGetOne: async () => { reads++; return remote; }, episodeFromVideoId: () => ({ season: 1, episode: 1 }) },
@@ -47,4 +49,19 @@ test("remote progress from a different episode cannot replace local progress", a
 test("private profiles never use another profile's cloud resume", async () => {
   const h = harness({ ms: 300000, t: 5000 }, {}, "private");
   assert.equal((await h.run()).ms, 300000); assert.equal(h.reads, 0);
+});
+
+test("anime starts at the same mapped position whether opened from CW or a provider", async () => {
+  const playEpisode = { season: 1, episode: 1, sourceMetaId: "kitsu:44047", kitsuStreamId: "kitsu:44047:1",
+    imdbId: "tt5607616", imdbSeason: 2, imdbEpisode: 14 };
+  for (const metaId of ["kitsu:44047", "tt5607616", "tmdb:tv:65942"]) {
+    const h = hookHarness("src/lib/player/resume-start.ts", "resolveStartMs", {
+      "@/lib/anime-episode-identity": animeIdentity,
+      "@/lib/resume": { readResumeEntry: (id: string, s: number, e: number) =>
+        id === "tt5607616" && s === 2 && e === 14 ? { ms: 720000, t: 100 } : null, saveResumeBatch() {} },
+      "@/lib/cw-profile": { privateCwProfileId: () => null },
+      "@/lib/stremio": {},
+    });
+    assert.equal((await h.render({ ...args, authKey: null, metaId, playEpisode })).ms, 720000);
+  }
 });

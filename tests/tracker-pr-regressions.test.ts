@@ -202,6 +202,7 @@ test("history success requires an acknowledged write, not HTTP success alone", a
 test("Simkl must acknowledge the requested episodes, not merely find their show", async () => {
   let response: any = { added: { shows: 1, episodes: 0 }, not_found: { episodes: [{}] } };
   const api = load("src/lib/simkl/history.ts", {
+    "./list-status": { invalidateSimklProgress() {} },
     "@/lib/active-profile-id": {},
     "./session": {},
     "@/lib/tracker-resolve": {},

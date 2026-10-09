@@ -43,7 +43,9 @@ import { useCapstanDetail } from "@/lib/streams/plugins/extension/detail-hook";
 import { isCapstanId, titlesAgree } from "@/lib/streams/plugins/extension/detail";
 import { resolveMeta } from "@/lib/meta-resource";
 import { useMdblistScores } from "@/lib/providers/mdblist";
-import { lastPlayedEpisode, readResumeEntry, saveResumeMs } from "@/lib/resume";
+import { lastPlayedEpisode, readResumeEntry, saveResumeMs, resumeVersion, subscribeResume } from "@/lib/resume";
+import { lastAnimePlayedEpisode } from "@/lib/anime-progress";
+import { useAnimeEntryAliases } from "@/lib/use-anime-entry-aliases";
 import { advancePastFinished } from "@/lib/detail-resume-advance";
 import { localCwEntry } from "@/lib/local-cw";
 import { omdbPrefetch, omdbScores, type OmdbScores } from "@/lib/providers/omdb";
@@ -1306,10 +1308,17 @@ export function DetailView({
 
   const upcoming = !loading && isTitleUpcoming(detail, meta);
   const currentFranchiseId = animeCanonicalId ?? meta.id;
+  const rvVersion = useSyncExternalStore(subscribeResume, resumeVersion);
+  const animeEntryAliases = useAnimeEntryAliases(isAnime && animeCanonicalId ? [animeCanonicalId] : []);
 
   const lastPlay = useMemo(() => {
     if (episodeHint) return episodeHint;
-    if (isAnime) return lastPlayedEpisode(meta.id);
+    if (isAnime) {
+      return lastAnimePlayedEpisode(animeEpisodes, {
+        metaId: meta.id, trackId: animeCanonicalId ?? undefined,
+        imdbId: detail?.imdbId, traktWatched: new Set(), entryAliases: animeEntryAliases,
+      });
+    }
     const candidates: Array<{ season: number; episode: number; t: number }> = [];
     const ids = Array.from(
       new Set(
@@ -1370,6 +1379,10 @@ export function DetailView({
     episodeHint,
     seriesWatchedVer,
     cinemetaFull?.videos,
+    animeEpisodes,
+    animeCanonicalId,
+    rvVersion,
+    animeEntryAliases,
   ]);
 
   useEffect(() => {

@@ -3,6 +3,23 @@ import { privateCwProfileId } from "./cw-profile";
 
 const KEY = "harbor.resume";
 const PRIVATE_PREFIX = "harbor.resume.private.v1.";
+let version = 0;
+const subscribers = new Set<() => void>();
+let cachedKey: string | null = null;
+let cachedRaw: string | null = null;
+let cachedEntries: Record<string, Entry> = {};
+
+export function subscribeResume(fn: () => void): () => void {
+  subscribers.add(fn);
+  return () => { subscribers.delete(fn); };
+}
+
+export function resumeVersion(): number { return version; }
+
+function notifyResume(): void {
+  version += 1;
+  for (const fn of subscribers) fn();
+}
 
 function readKey(): string {
   const profileId = privateCwProfileId();
@@ -21,7 +38,13 @@ function entryKey(id: string, season?: number, episode?: number): string {
 function readAll(key = readKey()): Record<string, Entry> {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Record<string, Entry>) : {};
+    if (cachedKey !== key || cachedRaw !== raw) {
+      const entries = raw ? (JSON.parse(raw) as Record<string, Entry>) : {};
+      cachedKey = key;
+      cachedRaw = raw;
+      cachedEntries = entries && typeof entries === "object" ? entries : {};
+    }
+    return cachedEntries;
   } catch {
     return {};
   }
@@ -60,10 +83,11 @@ export function saveResumeMs(
   };
   // Imported/cloud progress never establishes a profile's playback ownership.
   for (const key of ownerId ? [KEY, PRIVATE_PREFIX + ownerId] : [KEY]) {
-    const all = readAll(key);
+    const all = { ...readAll(key) };
     all[entryKey(id, season, episode)] = entry;
     writeAll(all, key);
   }
+  notifyResume();
 }
 
 export function saveResumeBatch(
@@ -78,7 +102,7 @@ export function saveResumeBatch(
   }[],
 ): void {
   if (entries.length === 0) return;
-  const all = readAll(KEY);
+  const all = { ...readAll(KEY) };
   const now = Date.now();
   for (const e of entries) {
     if (!Number.isFinite(e.ms) || e.ms < 0) continue;
@@ -95,6 +119,7 @@ export function saveResumeBatch(
     };
   }
   writeAll(all, KEY);
+  notifyResume();
 }
 
 export function readResumeMs(id: string, season?: number, episode?: number): number {
@@ -130,10 +155,11 @@ export function readResumeSource(
 
 export function clearResume(id: string, season?: number, episode?: number, ownerId?: string): void {
   for (const key of ownerId ? [KEY, PRIVATE_PREFIX + ownerId] : [readKey()]) {
-    const all = readAll(key);
+    const all = { ...readAll(key) };
     delete all[entryKey(id, season, episode)];
     writeAll(all, key);
   }
+  notifyResume();
 }
 
 export function lastPlayedEpisode(seriesId: string): {
@@ -176,4 +202,12 @@ export function lastPlayedEpisode(seriesId: string): {
     }
   }
   return best;
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("harbor:active-profile-changed", notifyResume);
+  window.addEventListener("harbor:profiles-updated", notifyResume);
+  window.addEventListener("storage", (event) => {
+    if (event.key === KEY || event.key?.startsWith(PRIVATE_PREFIX)) notifyResume();
+  });
 }

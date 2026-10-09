@@ -550,6 +550,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
   });
 
   const { closePlayer, onStubEject } = usePlayerExit({
+    durationSec: snap.durationSec,
     src: activeMediaSrc,
     season,
     episode,

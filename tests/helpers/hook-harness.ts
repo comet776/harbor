@@ -18,6 +18,7 @@ export function hookHarness(file: string, exportName: string, mocks: Record<stri
       if (!memos[i] || !same(memos[i].deps, deps)) memos[i] = { deps, value: create() };
       return memos[i].value;
     },
+    useCallback(fn: (...args: any[]) => any, deps: any[]) { return react.useMemo(() => fn, deps); },
     useEffect(run: () => any, deps: any[]) {
       const i = ei++;
       if (!effects[i] || !same(effects[i].deps, deps)) pending.push({ i, run, deps });
@@ -34,9 +35,9 @@ export function hookHarness(file: string, exportName: string, mocks: Record<stri
     return mocks[name];
   }, api, ...Object.values(globals));
   return {
-    render(args?: any) {
+    render(...args: any[]) {
       ri = si = mi = ei = 0; pending = [];
-      const result = api[exportName](args);
+      const result = api[exportName](...args);
       for (const { i } of pending) effects[i]?.cleanup?.();
       for (const { i, run, deps } of pending) effects[i] = { deps, cleanup: run() };
       return result;

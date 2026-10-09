@@ -1,63 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useMal } from "@/lib/mal/provider";
 import { fetchListEntry, resolveMalMediaId } from "@/lib/mal/mutations";
+import { subscribeSync } from "./sync";
+import { getSession } from "./session";
 import type { KitsuEpisode } from "@/lib/providers/kitsu";
-import { airedOnly } from "@/lib/aired";
+import { createAnimeEntryLoader, useAnimeTrackerWatched } from "@/lib/use-anime-tracker-watched";
 
 export type MalWatched = { watchedKeys: Set<string>; completed: boolean };
+const EMPTY = new Set<string>();
+const loader = createAnimeEntryLoader(async (id) => {
+  const owner = getSession();
+  const mediaId = await resolveMalMediaId(id);
+  if (mediaId == null || getSession() !== owner) return null;
+  const info = await fetchListEntry(mediaId);
+  return getSession() === owner ? {
+    progress: info.entry?.numEpisodesWatched ?? 0, total: info.numEpisodes, completed: info.entry?.status === "completed",
+  } : null;
+});
+const subscribe = (fn: () => void) => subscribeSync((event) => {
+  if (event.kind === "ok" || event.kind === "watching") fn();
+});
 
-const EMPTY: MalWatched = { watchedKeys: new Set(), completed: false };
+export function useMalWatchedEntries(groups: Map<string, KitsuEpisode[]>) {
+  const { isConnected, session } = useMal();
+  return useAnimeTrackerWatched(groups, session, isConnected, loader, subscribe);
+}
 
 export function useMalWatched(harborId: string, episodes: KitsuEpisode[]): MalWatched {
-  const { isConnected } = useMal();
-  const [result, setResult] = useState<MalWatched>(EMPTY);
-  const epSig = useMemo(
-    () =>
-      episodes.map((e) => `${e.id}:${e.seasonNumber ?? 1}:${e.number}:${e.airdate ?? ""}`).join("|"),
-    [episodes],
-  );
-  const episodesRef = useRef(episodes);
-  episodesRef.current = episodes;
-
-  useEffect(() => {
-    if (!isConnected || !harborId) {
-      setResult(EMPTY);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const malId = await resolveMalMediaId(harborId).catch(() => null);
-      if (cancelled || malId == null) return;
-      const info = await fetchListEntry(malId).catch(() => null);
-      if (cancelled || !info) return;
-      if (!info.entry) {
-        setResult(EMPTY);
-        return;
-      }
-      const { status, numEpisodesWatched } = info.entry;
-      const sorted = airedOnly(
-        [...episodesRef.current].sort(
-          (a, b) => (a.seasonNumber ?? 1) - (b.seasonNumber ?? 1) || a.number - b.number,
-        ),
-        (e) => e.airdate,
-      );
-      const mediaTotal = info.numEpisodes;
-      const cap =
-        mediaTotal != null && mediaTotal > 0 ? Math.min(sorted.length, mediaTotal) : sorted.length;
-      const watchedCount =
-        status === "completed" ? cap : Math.max(0, Math.min(numEpisodesWatched, cap));
-      const watchedKeys = new Set<string>();
-      for (let i = 0; i < watchedCount; i++) {
-        const ep = sorted[i];
-        watchedKeys.add(`${ep.seasonNumber ?? 1}:${ep.number}`);
-      }
-      const completed = status === "completed" || (cap <= 1 && numEpisodesWatched >= 1);
-      setResult({ watchedKeys, completed });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [harborId, isConnected, epSig]);
-
-  return result;
+  const groups = useMemo(() => harborId ? new Map([[harborId, episodes]]) : new Map(), [harborId, episodes]);
+  const result = useMalWatchedEntries(groups);
+  return { watchedKeys: result.watched.get(harborId) ?? EMPTY, completed: result.completed.has(harborId) };
 }

@@ -4,6 +4,7 @@ import { emptySnapshot } from "../../src/lib/player/bridge.ts";
 import { isNaturalEnd } from "../../src/lib/player/playback-end.ts";
 import { playerLoadIdentity } from "../../src/lib/player/load-identity.ts";
 import { animeTrackerTarget } from "../../src/lib/tracker-progress.ts";
+import { animePlaybackCoordinates } from "../../src/lib/anime-episode-identity.ts";
 
 export function playbackPersistenceHarness(kind: "local" | "cloud" = "local") {
   const effects: Array<{ deps: unknown[] | undefined; cleanup?: () => void }> = [];
@@ -41,7 +42,7 @@ export function playbackPersistenceHarness(kind: "local" | "cloud" = "local") {
   const noop = () => {};
   const dependencies: Record<string, unknown> = {
     markAnimeWatching: noop, syncAnimeProgress: noop, markMalWatching: noop, syncMalProgress: noop,
-    animeTrackerTarget, activeProfileId: () => profileId, getSession: () => trackerSession,
+    animeTrackerTarget, animePlaybackCoordinates, activeProfileId: () => profileId, getSession: () => trackerSession,
     animeIdentityEligible: () => false, resolveAnimeIdentity: async () => null,
     isForeignSplitSeason: () => false, splitFranchiseDisplaySeason: () => undefined,
     isSplitFranchiseKitsu: () => false, parseKitsuId: () => null,

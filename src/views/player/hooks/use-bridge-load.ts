@@ -103,6 +103,7 @@ export function useBridgeLoad(params: {
             season,
             episode,
             openingVid,
+            playEpisode: src.episode,
           });
       let resolved: Awaited<typeof resumePromise>;
       try {

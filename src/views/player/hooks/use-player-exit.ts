@@ -9,6 +9,7 @@ import {
 import type { PlayerBridge } from "@/lib/player/bridge";
 import { getPlaybackPosition } from "@/lib/player/playback-clock";
 import { saveResumeMs } from "@/lib/resume";
+import { animePlaybackCoordinates } from "@/lib/anime-episode-identity";
 import { useProfiles } from "@/lib/profiles";
 import { exitWindowFullscreenOnPlayerClose } from "@/lib/fullscreen-state";
 import type { PartialSyncState } from "@/lib/together/provider";
@@ -21,6 +22,7 @@ export function usePlayerExit(params: {
   src: PlayerSrc;
   season: number | undefined;
   episode: number | undefined;
+  durationSec: number;
   bridgeRef: RefObject<PlayerBridge | null>;
   liveUrl: string;
   liveStreamRef: PlayerStreamRef | undefined;
@@ -41,6 +43,7 @@ export function usePlayerExit(params: {
     src,
     season,
     episode,
+    durationSec,
     bridgeRef,
     liveUrl,
     liveStreamRef,
@@ -64,10 +67,16 @@ export function usePlayerExit(params: {
     await captureExitSnapshot();
     const pos = getPlaybackPosition();
     if (Number.isFinite(pos) && pos > 0) {
-      saveResumeMs(
-        src.meta.id, pos * 1000, season, episode,
-        undefined, undefined, undefined, activeProfile?.id,
-      );
+      const targets = animePlaybackCoordinates(src.meta.id, src.episode, season, episode);
+      if (targets) {
+        for (const target of targets)
+          saveResumeMs(target.id, pos * 1000, target.season, target.episode,
+            undefined, durationSec > 0 ? Math.min(1, pos / durationSec) : undefined,
+            undefined, activeProfile?.id);
+      } else {
+        saveResumeMs(src.meta.id, pos * 1000, season, episode,
+          undefined, undefined, undefined, activeProfile?.id);
+      }
       if (liveStreamRef && pos >= REMEMBER_MIN_SEC) {
         const rememberedUrl = (src.historyUrl ?? liveUrl) || src.url;
         savePlayback(
@@ -99,9 +108,11 @@ export function usePlayerExit(params: {
     exitPlayback,
     src.meta.id,
     src.meta.name,
+    src.episode,
     src.historyUrl,
     season,
     episode,
+    durationSec,
     inRoom,
     isHost,
     notifyHostLeaving,

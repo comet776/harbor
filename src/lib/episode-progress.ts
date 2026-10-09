@@ -7,7 +7,7 @@ export type EpisodeProgress = {
   startedAt: number;
 };
 
-const WATCHED_THRESHOLD = 0.85;
+export const WATCHED_THRESHOLD = 0.85;
 
 export function resumeDefaultSeason(
   seriesId: string,

@@ -23,6 +23,7 @@ import { clearResume, saveResumeMs } from "@/lib/resume";
 import { isMovieWatchedLocal, setMovieWatchedLocal } from "@/lib/movie-watched";
 import { setViewedSeason } from "@/lib/season-view-pref";
 import { animeTrackerTarget } from "@/lib/tracker-progress";
+import { animePlaybackCoordinates } from "@/lib/anime-episode-identity";
 import type { PlayerSnapshot } from "@/lib/player/bridge";
 import { getPlaybackPosition, subscribePlaybackClock } from "@/lib/player/playback-clock";
 import { useSettings } from "@/lib/settings";
@@ -166,10 +167,20 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
         : typeof ep === "number"
           ? [ep]
           : [];
+    const animeTargets = !s.episodeSpan ? animePlaybackCoordinates(id, s.episode, se, ep) : null;
     if (finished) {
-      if (covered.length) {
+      if (animeTargets) {
+        for (const target of animeTargets)
+          clearResume(target.id, target.season, target.episode, current.ownerId);
+      } else if (covered.length) {
         for (const coveredEpisode of covered) clearResume(id, se, coveredEpisode, current.ownerId);
       } else clearResume(id, se, ep, current.ownerId);
+    } else if (animeTargets) {
+      for (const target of animeTargets)
+        saveResumeMs(target.id, pos * 1000, target.season, target.episode,
+          displaySeasonFor(s, se, cs, seasonForeign),
+          sn.durationSec > 0 ? Math.min(1, pos / sn.durationSec) : undefined,
+          undefined, current.ownerId);
     } else if (covered.length) {
       for (const coveredEpisode of covered)
         saveResumeMs(
@@ -208,8 +219,12 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
         poster: s.meta.poster,
         background: s.meta.background,
       });
-      for (const coveredEpisode of covered.length ? covered : [ep])
-        setManualWatched(id, cs, coveredEpisode, true);
+      if (animeTargets) {
+        for (const target of animeTargets) setManualWatched(target.id, target.season, target.episode, true);
+      } else {
+        for (const coveredEpisode of covered.length ? covered : [ep])
+          setManualWatched(id, cs, coveredEpisode, true);
+      }
       void syncSeriesWatchedToStremio(s.meta, rv ? rid : null);
     }
     if (s.meta.type === "movie" && finished) {
@@ -248,6 +263,7 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
       (s.meta.type === "series" || s.meta.type === "movie" || s.meta.type === "anime" || animeLocal) &&
       !(s.meta.type === "movie" && finished)
     ) {
+      const cwTarget = animeTargets?.find((target) => target.id === id) ?? animeTargets?.[0];
       saveLocalCw(
         {
           id,
@@ -257,8 +273,8 @@ export function useResumeAutosave(params: ResumeAutosaveParams) {
           background: s.meta.background,
           isAnime: animeLocal || s.meta.type === "anime" || !!s.isAnime || !!s.episode?.kitsuStreamId,
           source: CLOUD_OK.test(id) && !isLocalUrl(s.url) ? "library" : "local",
-          season: cs,
-          episode: ep,
+          season: cwTarget?.season ?? cs,
+          episode: cwTarget?.episode ?? ep,
           videoId: s.episode?.videoId ?? s.episode?.kitsuStreamId,
           positionMs: Math.floor(pos * 1000),
           durationMs: Math.max(0, Math.floor(sn.durationSec * 1000)),

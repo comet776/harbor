@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Meta } from "@/lib/cinemeta";
-import { useAnilistWatched } from "@/lib/anilist/use-anilist-watched";
+import { useAnilistWatchedEntries } from "@/lib/anilist/use-anilist-watched";
 import type { EpisodeProgress } from "@/lib/episode-progress";
-import { useMalWatched } from "@/lib/mal/use-mal-watched";
+import { useMalWatchedEntries } from "@/lib/mal/use-mal-watched";
+import { ANIME_ENTRY_ID, animeEpisodeOwner } from "@/lib/anime-episode-identity";
+import { resumeVersion, subscribeResume } from "@/lib/resume";
+import { useSimklWatchedMap } from "@/lib/simkl/use-simkl-watched-map";
+import { useAnimeEntryAliases } from "@/lib/use-anime-entry-aliases";
 import { manualWatchedVersion, subscribeManualWatched } from "@/lib/manual-watched";
 import { animeDetails, type AnimeDetailExtras } from "@/lib/providers/anime-detail";
 import { parseKitsuId, type KitsuEpisode, type KitsuStreamer } from "@/lib/providers/kitsu";
@@ -183,17 +187,31 @@ export function useBpAnimeDetail(meta: Meta | null, opts?: BpAnimeDetailOptions)
   const trackId = canonicalId === metaId ? undefined : canonicalId;
   const imdbId = loaded?.imdbId ?? null;
   const mwVersion = useSyncExternalStore(subscribeManualWatched, manualWatchedVersion);
-  const { watchedKeys: anilistWatched } = useAnilistWatched(isAnime ? canonicalId : "", episodes);
-  const { watchedKeys: malWatched } = useMalWatched(isAnime ? canonicalId : "", episodes);
+  const groups = useMemo(() => {
+    const map = new Map<string, KitsuEpisode[]>();
+    if (isAnime) for (const ep of episodes) {
+      const owner = animeEpisodeOwner(ep, metaId, trackId);
+      if (!ANIME_ENTRY_ID.test(owner)) continue;
+      const list = map.get(owner) ?? [];
+      list.push(ep); map.set(owner, list);
+    }
+    return map;
+  }, [isAnime, episodes, metaId, trackId]);
+  const anilist = useAnilistWatchedEntries(groups);
+  const mal = useMalWatchedEntries(groups);
+  const entryAliases = useAnimeEntryAliases([...groups.keys()]);
+  const simklWatched = useSimklWatchedMap(entryAliases);
+  const rvVersion = useSyncExternalStore(subscribeResume, resumeVersion);
+  const progressContext = useMemo(() => ({
+    metaId, trackId, imdbId, traktWatched: NO_TRAKT, entryAliases,
+    anilistWatched: anilist.watched, malWatched: mal.watched, simklWatched,
+  }), [metaId, trackId, imdbId, entryAliases, anilist.watched, mal.watched, simklWatched]);
 
   const preferredSeasonKey = useAnimePreferredSeason({
     episodes,
-    metaId,
-    trackId,
-    traktWatched: NO_TRAKT,
-    anilistWatched,
-    malWatched,
+    progressContext,
     mwVersion,
+    resumeVersion: rvVersion,
   });
 
   // A kitsu entry that is itself a later season maps every episode onto one
@@ -256,12 +274,9 @@ export function useBpAnimeDetail(meta: Meta | null, opts?: BpAnimeDetailOptions)
   const progress = useAnimeProgressMap({
     episodes,
     displayEpisodes: shown,
-    metaId,
-    trackId,
-    traktWatched: NO_TRAKT,
-    anilistWatched,
-    malWatched,
+    progressContext,
     mwVersion,
+    resumeVersion: rvVersion,
     settings,
   });
 

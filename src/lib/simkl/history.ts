@@ -5,6 +5,7 @@ import { currentActivitiesAll } from "./activities/gate";
 import { simklRequest } from "./client";
 import { simklTargetIds } from "./ids";
 import type { SimklIds, SimklTarget } from "./types";
+import { invalidateSimklProgress } from "./list-status";
 
 const ANIME_ID = /^(kitsu|mal|anilist|anidb):/;
 
@@ -143,16 +144,21 @@ export async function addToHistory(target: SimklTarget, metaId?: string): Promis
   const session = getSession();
   const owned = () => session != null && getSession() === session && activeProfileId() === profile;
   if (!owned()) return false;
-  if (await postHistory(target)) return true;
+  if (await postHistory(target)) {
+    invalidateSimklProgress();
+    return true;
+  }
   if (!owned() || !metaId || target.kind !== "episode" || ANIME_ID.test(metaId)) return false;
   const resolved = await resolveForMeta(metaId, target.season, target.number);
   if (!owned() || !resolved.ok) return false;
-  return postHistory({
+  const confirmed = await postHistory({
     kind: "episode",
     show: { ids: resolved.episode.showIds },
     season: resolved.episode.season,
     number: resolved.episode.number,
   });
+  if (confirmed) invalidateSimklProgress();
+  return confirmed;
 }
 
 export async function markEpisodesWatched(
@@ -180,7 +186,9 @@ export async function markEpisodesWatched(
         ],
       },
     });
-    return (result?.added?.episodes ?? 0) >= new Set(episodes).size;
+    const confirmed = (result?.added?.episodes ?? 0) >= new Set(episodes).size;
+    if (confirmed) invalidateSimklProgress();
+    return confirmed;
   } catch {
     return false;
   }
@@ -213,6 +221,7 @@ export async function unmarkEpisodesWatched(
         ],
       },
     });
+    invalidateSimklProgress();
     return true;
   } catch {
     return false;
