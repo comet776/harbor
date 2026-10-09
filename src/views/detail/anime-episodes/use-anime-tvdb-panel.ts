@@ -3,6 +3,7 @@ import { useT } from "@/lib/i18n";
 import type { KitsuEpisode } from "@/lib/providers/kitsu";
 import { kitsuToTvdb } from "@/lib/providers/anime-mapping";
 import { isFranchiseExtra, type FranchiseEntry } from "@/lib/providers/anime-detail";
+import { isGenericEpisodeName } from "@/lib/providers/anime-episode-build";
 import {
   defaultOrderLabel,
   tvdbLangFromIso1,
@@ -209,6 +210,7 @@ export function useAnimeTvdbPanel(
     const currentByPair = new Map<string, KitsuEpisode>();
     const currentByAbs = new Map<number, KitsuEpisode>();
     const currentByTvdbId = new Map<number, KitsuEpisode>();
+    const currentUnmappedByPair = new Map<string, KitsuEpisode>();
     for (const ep of episodes) {
       const abs = ep.absoluteNumber ?? ep.number;
       if (abs != null && !currentByAbs.has(abs)) currentByAbs.set(abs, ep);
@@ -217,6 +219,13 @@ export function useAnimeTvdbPanel(
       if (ep.imdbSeason != null && ep.imdbSeason >= 1 && ep.imdbEpisode != null) {
         const key = `${ep.imdbSeason}:${ep.imdbEpisode}`;
         if (!currentByPair.has(key)) currentByPair.set(key, ep);
+      }
+      if (
+        ep.id > 0 && ep.imdbSeason == null && ep.imdbEpisode == null &&
+        ep.tvdbEpisodeId == null && ep.absoluteNumber == null
+      ) {
+        const key = `${ep.seasonNumber ?? 1}:${ep.number}`;
+        if (!currentUnmappedByPair.has(key)) currentUnmappedByPair.set(key, ep);
       }
     }
     for (const ep of pool) {
@@ -262,6 +271,24 @@ export function useAnimeTvdbPanel(
           currentByTvdbId.get(e.id) ??
           currentByPair.get(`${e.seasonNumber}:${e.episodeNumber}`) ??
           (abs != null ? currentByAbs.get(abs) : undefined);
+        // Adding franchise entries disables the native-number absolute fallback.
+        // Retain an unmapped current row only when its metadata verifies the slot.
+        const unmapped = currentUnmappedByPair.get(`${e.seasonNumber}:${e.episodeNumber}`);
+        if (
+          !match && e.seasonNumber > 0 && unmapped && !claimed.has(unmapped.id) &&
+          ((!isGenericEpisodeName(unmapped.title) &&
+            (matchTitle(unmapped.title, e.name) || matchTitle(unmapped.title, e.nameEn))) ||
+            (unmapped.airdate && e.airDate && isCloseDate(unmapped.airdate, e.airDate)))
+        ) {
+          match = {
+            ...unmapped,
+            imdbId: unmapped.imdbId ?? imdbId ?? undefined,
+            imdbSeason: e.seasonNumber,
+            imdbEpisode: e.episodeNumber,
+            absoluteNumber: abs ?? undefined,
+            tvdbEpisodeId: e.id > 0 ? e.id : undefined,
+          };
+        }
         let title: string | undefined;
         let synopsis: string | undefined;
         if (match && currentMatch && match !== currentMatch) {
